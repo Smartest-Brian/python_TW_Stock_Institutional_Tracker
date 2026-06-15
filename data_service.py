@@ -75,7 +75,12 @@ class DataFetcher:
         Fetches daily prices from yfinance and cleans columns.
         """
         try:
-            df = yf.download(ticker, start=start_date, end=end_date)
+            from datetime import datetime, timedelta
+            # yfinance end_date is exclusive, add 1 day to make it inclusive
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+            end_inclusive = (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            df = yf.download(ticker, start=start_date, end=end_inclusive)
             if df.empty:
                 return pd.DataFrame()
             
@@ -85,9 +90,10 @@ class DataFetcher:
                 
             df = df.reset_index()
             # Convert DatetimeIndex or Timestamp to string date representation (YYYY-MM-DD)
-            df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
+            df["Date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
             return df
-        except Exception:
+        except Exception as e:
+            print(f"Error fetching prices for {ticker}: {e}")
             return pd.DataFrame()
 
     @staticmethod

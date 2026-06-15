@@ -419,6 +419,7 @@ class DashboardUI:
             
             if df.empty:
                 st.error(f"Failed to fetch market data. Verify symbol '{ticker_input}' or adjust date range.")
+                load_market_data.clear()
                 return
                 
             if is_mocked:
