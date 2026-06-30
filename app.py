@@ -219,20 +219,38 @@ class DashboardUI:
         price_diff = latest_price - prev_price
         price_pct = (price_diff / prev_price) * 100 if prev_price != 0 else 0
         
+        price_missing = latest_row.get("Price_Missing", False)
+        flow_missing = latest_row.get("Flow_Missing", False)
+        price_asterisk = "*" if price_missing else ""
+        flow_asterisk = "*" if flow_missing else ""
+        
         # Select format representation based on Index vs Stock
-        price_fmt = f"{latest_price:,.2f}" if asset.is_index else f"{latest_price:,.1f}"
+        price_fmt = f"{latest_price:,.2f}{price_asterisk}" if asset.is_index else f"{latest_price:,.1f}{price_asterisk}"
         diff_fmt = f"{price_diff:+.2f}" if asset.is_index else f"{price_diff:+.1f}"
         
         price_class = "delta-positive" if price_diff >= 0 else "delta-negative"
+        if price_missing:
+            price_class = "delta-neutral" # Neutral color when missing
+            
         price_arrow = "▲" if price_diff >= 0 else "▼"
+        if price_missing:
+            price_arrow = "−"
         
         latest_net = latest_row["net_display"]
         net_class = "delta-positive" if latest_net >= 0 else "delta-negative"
+        if flow_missing:
+            net_class = "delta-neutral"
+            
         net_arrow = "▲ Net Buy" if latest_net >= 0 else "▼ Net Sell"
-        
+        if flow_missing:
+            net_arrow = "− No Flow Data"
+            
         cumulative_net = df["net_display"].sum()
         cum_class = "delta-positive" if cumulative_net >= 0 else "delta-negative"
         cum_arrow = "▲ Net Accum. Buy" if cumulative_net >= 0 else "▼ Net Accum. Sell"
+
+        if price_missing or flow_missing:
+            st.warning("⚠️ 部分最新資料尚未更新（標有 * 號），系統已自動保留前一日數值或補零以維持圖表連貫。")
 
         with kpi_cols[0]:
             st.markdown(f"""
@@ -249,7 +267,7 @@ class DashboardUI:
             st.markdown(f"""
             <div class="custom-card">
                 <div class="card-label">{investor_type} Flow (Latest Day)</div>
-                <div class="card-value">{latest_net:+,.2f} <span style="font-size:0.95rem; font-weight:normal; color:#94A3B8;">{asset.volume_unit}</span></div>
+                <div class="card-value">{latest_net:+,.2f}{flow_asterisk} <span style="font-size:0.95rem; font-weight:normal; color:#94A3B8;">{asset.volume_unit}</span></div>
                 <div class="card-delta {net_class}">
                     {net_arrow} on {latest_row["Date"]}
                 </div>
@@ -390,12 +408,27 @@ class DashboardUI:
         """
         st.markdown("### 📋 Recent Historical Transactions")
         
+        # Prepare a copy of the dataframe to format the Date column
+        export_df_raw = df.copy()
+        def format_date_with_asterisk(row):
+            date_str = str(row["Date"])
+            missing = []
+            if row.get("Price_Missing", False):
+                missing.append("股價")
+            if row.get("Flow_Missing", False):
+                missing.append("籌碼")
+            if missing:
+                return f"{date_str} (*缺{'+'.join(missing)})"
+            return date_str
+            
+        export_df_raw["Date"] = export_df_raw.apply(format_date_with_asterisk, axis=1)
+        
         # Create cleaned dataframe for users
         if investor_type == "Summary (綜合比較)":
-            export_df = df[["Date", "Open", "High", "Low", "Close", "Volume", "net_Foreign_display", "net_Trust_display", "net_Dealer_display", "net_display"]].copy()
+            export_df = export_df_raw[["Date", "Open", "High", "Low", "Close", "Volume", "net_Foreign_display", "net_Trust_display", "net_Dealer_display", "net_display"]].copy()
             export_df.columns = ["Date", "Open", "High", "Low", "Close", "Market Volume", "Foreign Net", "Trust Net", "Dealer Net", "Total Net"]
         else:
-            export_df = df[["Date", "Open", "High", "Low", "Close", "Volume", "buy_display", "sell_display", "net_display"]].copy()
+            export_df = export_df_raw[["Date", "Open", "High", "Low", "Close", "Volume", "buy_display", "sell_display", "net_display"]].copy()
             export_df.columns = ["Date", "Open", "High", "Low", "Close", "Market Volume", f"{investor_type} Buy", f"{investor_type} Sell", f"{investor_type} Net Flow"]
         
         # Reverse list to show newest records on top

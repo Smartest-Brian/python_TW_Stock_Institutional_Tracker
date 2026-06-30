@@ -246,11 +246,27 @@ class MarketDataService:
                 flows_df["Dealer"] = flows_df["net_buy_sell"] * 0.1
             
         # Aligns price dates and flow dates
-        merged_df = pd.merge(prices_df, flows_df, left_on="Date", right_on="date", how="inner")
+        merged_df = pd.merge(prices_df, flows_df, left_on="Date", right_on="date", how="outer")
         if merged_df.empty:
             return pd.DataFrame(), False
             
+        merged_df["Date"] = merged_df["Date"].fillna(merged_df["date"])
         merged_df = merged_df.sort_values("Date").reset_index(drop=True)
+        
+        # Mark missing data
+        merged_df["Price_Missing"] = merged_df["Close"].isna()
+        merged_df["Flow_Missing"] = merged_df["net_buy_sell"].isna()
+        
+        # Forward fill missing prices for continuous charting
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            if col in merged_df.columns:
+                merged_df[col] = merged_df[col].ffill()
+                
+        # Fill missing institutional flows with 0
+        for col in ["buy", "sell", "net_buy_sell"]:
+            if col in merged_df.columns:
+                merged_df[col] = merged_df[col].fillna(0)
+
         
         # Scale values: Index in Billions of NTD (10^9), Stocks in Millions of Shares (10^6)
         scale_factor = 1e9 if asset.is_index else 1e6
