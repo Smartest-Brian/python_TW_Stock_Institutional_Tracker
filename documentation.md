@@ -82,7 +82,7 @@ graph TD
 專案結構劃分如下（絕對路徑已進行隱蔽處理）：
 
 ```text
-/path/to/project/python_TW_Stock_Foreign_Tracker/
+/path/to/project/python_TW_Stock_Institutional_Tracker/
 ├── .antigravity/                  # Antigravity IDE 專用 Prompt 設定檔目錄
 │   ├── system.prompt
 │   └── documentation.prompt       

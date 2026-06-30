@@ -1,6 +1,6 @@
-# Taiwan Stock & Foreign Institutional Tracker
+# Taiwan Stock & Institutional Capital Dashboard
 
-An interactive, premium-designed financial dashboard built in Python using **Streamlit** and **Plotly**. It visualizes daily stock price trends alongside Foreign Institutional Investors' Net Buy/Sell volume over a rolling 6-month period for TAIEX and preset/custom stocks in the Taiwan market.
+An interactive, premium-designed financial dashboard built in Python using **Streamlit** and **Plotly**. It visualizes daily stock price trends alongside Taiwan's Three Major Institutional Investors' Net Buy/Sell volume (Foreign Investors, Investment Trust, and Dealers) over a rolling 6-month period for TAIEX and preset/custom stocks in the Taiwan market.
 
 This project is built using a clean **Object-Oriented Design (OOD)** to separate data extraction, validation, and fallbacks (in `data_service.py`) from layout rendering and user interactions (in `app.py`).
 
@@ -16,19 +16,20 @@ This project is built using a clean **Object-Oriented Design (OOD)** to separate
    - TAIEX (Taiwan Capitalization Weighted Stock Index) is always available as the default view.
    - Support for selecting pre-configured top-weighted stocks (TSMC, Foxconn, MediaTek, Quanta Computer, Fubon Financial).
    - Support for **Custom Stock Input**: Enter any valid numerical stock code (e.g., `2303` or `2303.TW`) to retrieve custom analytics dynamically.
-3. **Dual-Axis Subplots**:
+3. **Multi-Institutional Tracking & Dual-Axis Subplots**:
    - **Top Subplot**: Interactive price charts supporting both **Candlestick** and **Line** layouts.
-   - **Bottom Subplot**: Color-coded bar charts showing Foreign Institutional Investors' Net Flows (Emerald Green for net buys, Rose Red for net sells).
+   - **Bottom Subplot**: Interactive volume charts dynamically changing based on the selected investor view.
+   - **Summary Mode**: A powerful **Relative Stacked Bar Chart** displaying the individual net flow of Foreign Investors, Investment Trust, and Dealers layered on top of each other, alongside a trend line for the Total Institutional flow.
 4. **Key Metric Indicators**: High-level KPI cards displaying the latest closing price, daily changes, daily net capital flows, and cumulative flows for the selected timeframe.
 5. **Robust Caching & Rate Limiting**: Implements Streamlit `st.cache_data` (1-hour TTL) and a realistic fallback simulation layer to prevent API blocks or app crashes.
-6. **Data Export**: Displays recent transaction records in an interactive table with a direct download button to export the combined datasets as CSV.
+6. **Data Export**: Displays recent transaction records in an interactive table (automatically adapting columns based on the selected investor view) with a direct download button to export the combined datasets as CSV.
 
 ---
 
 ## File Structure
 
 ```
-python_TW_Stock_Foreign_Tracker/
+python_TW_Stock_Institutional_Tracker/
 ├── app.py             # UI rendering and controls (DashboardUI controller class)
 ├── data_service.py    # Business logic & APIs (AssetConfig, DataFetcher, FallbackGenerator, MarketDataService)
 ├── requirements.txt   # Declared python dependencies
@@ -45,7 +46,7 @@ Ensure you have **Python 3.11+** installed.
 ### 1. Clone or Open the Workspace
 Navigate to the project root directory:
 ```bash
-cd python_TW_Stock_Foreign_Tracker
+cd python_TW_Stock_Institutional_Tracker
 ```
 
 ### 2. Set Up a Virtual Environment (Recommended)
@@ -84,6 +85,7 @@ Once running, navigate to:
 ### Sidebar Settings
 - **Target Asset**: Select pre-configured assets or choose `"Custom Ticker..."`.
 - **Custom Input**: Type any Taiwan Stock symbol (e.g. `2303` for UMC) to query it dynamically.
+- **Investor Type**: Choose your analysis perspective (Summary, Total Institutional, Foreign Investors, Investment Trust, or Dealers).
 - **Timeframe (Start/End Date)**: Customize the date range for your analysis (defaults to the last 6 months).
 - **Price Chart Style**: Toggle between **Candlestick** and **Line** layouts.
 - **FinMind API Token (Optional)**: Input your FinMind API token to bypass public rate limit thresholds.
