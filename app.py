@@ -8,13 +8,13 @@ from data_service import AssetConfig, MarketDataService
 # Top-level cached function for loading and merging data
 # Streamlit caching works best on standalone functions
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_market_data(ticker_input: str, start_date_str: str, end_date_str: str, token: str = None):
+def load_market_data(ticker_input: str, start_date_str: str, end_date_str: str, token: str = None, investor_type: str = "Foreign Investors (外資)"):
     """
     Cached wrapper to load prices and institutional flows, aligning dates.
     """
     asset = AssetConfig.from_ticker(ticker_input)
     service = MarketDataService(token=token)
-    df, is_mocked = service.get_merged_data(asset, start_date_str, end_date_str)
+    df, is_mocked = service.get_merged_data(asset, start_date_str, end_date_str, investor_type)
     return df, is_mocked, asset
 
 
@@ -128,17 +128,17 @@ class DashboardUI:
         st.markdown(
             """
             <div class="main-title-container">
-                <h1 class="main-title">Taiwan Stock & Foreign Capital Dashboard</h1>
-                <div class="main-subtitle">Interactive analysis of Daily Prices and Foreign Institutional Investors' Net Flows</div>
+                <h1 class="main-title">Taiwan Stock & Institutional Capital Dashboard</h1>
+                <div class="main-subtitle">Interactive analysis of Daily Prices and Institutional Investors' Net Flows</div>
             </div>
             """, 
             unsafe_allow_html=True
         )
 
-    def render_sidebar(self) -> tuple[str, str, str, str, str]:
+    def render_sidebar(self) -> tuple[str, str, str, str, str, str]:
         """
         Renders the dashboard sidebar navigation controls and filters.
-        Returns a tuple of (resolved_ticker, start_date_str, end_date_str, chart_style, api_token).
+        Returns a tuple of (resolved_ticker, start_date_str, end_date_str, chart_style, api_token, investor_type).
         """
         st.sidebar.markdown("### ⚙️ Control Dashboard")
         
@@ -171,6 +171,19 @@ class DashboardUI:
                 # Extracts ticker code from preset string: "2330.TW (TSMC)" -> "2330.TW"
                 resolved_ticker = selected_option.split(" ")[0]
 
+        st.sidebar.markdown("#### Investor Type")
+        investor_type = st.sidebar.selectbox(
+            "Select Institutional Investor",
+            [
+                "Summary (綜合比較)",
+                "Total Institutional (三大法人合計)",
+                "Foreign Investors (外資)",
+                "Investment Trust (投信)",
+                "Dealers (自營商)"
+            ],
+            index=0 # default to Summary
+        )
+
         # Date controls
         st.sidebar.markdown("#### Timeframe")
         start_input = st.sidebar.date_input("Start Date", self.default_start_date)
@@ -190,11 +203,11 @@ class DashboardUI:
             help="Allows increased request limits when loading stock metrics."
         ).strip()
         
-        return resolved_ticker, start_str, end_str, chart_style, api_token
+        return resolved_ticker, start_str, end_str, chart_style, api_token, investor_type
 
-    def render_kpi_cards(self, df: pd.DataFrame, asset: AssetConfig):
+    def render_kpi_cards(self, df: pd.DataFrame, asset: AssetConfig, investor_type: str):
         """
-        Renders custom styled KPI cards summarizing price and foreign capital flow metrics.
+        Renders custom styled KPI cards summarizing price and institutional capital flow metrics.
         """
         kpi_cols = st.columns(3)
         
@@ -235,7 +248,7 @@ class DashboardUI:
         with kpi_cols[1]:
             st.markdown(f"""
             <div class="custom-card">
-                <div class="card-label">Foreign Capital Flow (Latest Day)</div>
+                <div class="card-label">{investor_type} Flow (Latest Day)</div>
                 <div class="card-value">{latest_net:+,.2f} <span style="font-size:0.95rem; font-weight:normal; color:#94A3B8;">{asset.volume_unit}</span></div>
                 <div class="card-delta {net_class}">
                     {net_arrow} on {latest_row["Date"]}
@@ -254,7 +267,7 @@ class DashboardUI:
             </div>
             """, unsafe_allow_html=True)
 
-    def render_plotly_charts(self, df: pd.DataFrame, asset: AssetConfig, chart_style: str):
+    def render_plotly_charts(self, df: pd.DataFrame, asset: AssetConfig, chart_style: str, investor_type: str):
         """
         Creates and renders dual-axis shared subplots using Plotly.
         """
@@ -266,7 +279,7 @@ class DashboardUI:
             vertical_spacing=0.08,
             subplot_titles=(
                 f"Price Movement ({asset.price_unit})",
-                f"Foreign Net Buy/Sell Volume ({asset.volume_unit})"
+                f"{investor_type} Net Buy/Sell Volume ({asset.volume_unit})"
             ),
             row_width=[0.4, 0.6]  # Subplot height proportions (bottom 40%, top 60%)
         )
@@ -303,20 +316,50 @@ class DashboardUI:
             )
             
         # Plot net flow component (Bottom Subplot)
-        bar_colors = ["#10B981" if val >= 0 else "#F43F5E" for val in df["net_display"]]
-        fig.add_trace(
-            go.Bar(
-                x=df["Date"],
-                y=df["net_display"],
-                marker=dict(
-                    color=bar_colors,
-                    line=dict(color=bar_colors, width=0.5)
+        if investor_type == "Summary (綜合比較)":
+            fig.add_trace(
+                go.Bar(
+                    x=df["Date"], y=df["net_Foreign_display"],
+                    name="Foreign (外資)", marker_color="#3B82F6"
+                ), row=2, col=1
+            )
+            fig.add_trace(
+                go.Bar(
+                    x=df["Date"], y=df["net_Trust_display"],
+                    name="Trust (投信)", marker_color="#F59E0B"
+                ), row=2, col=1
+            )
+            fig.add_trace(
+                go.Bar(
+                    x=df["Date"], y=df["net_Dealer_display"],
+                    name="Dealer (自營商)", marker_color="#8B5CF6"
+                ), row=2, col=1
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Date"], y=df["net_display"],
+                    name="Total (合計)", mode="lines",
+                    line=dict(color="#10B981", width=2)
+                ), row=2, col=1
+            )
+            fig.update_layout(barmode='relative', showlegend=True)
+            # Hide legend for the top price chart trace
+            fig.data[0].showlegend = False
+        else:
+            bar_colors = ["#10B981" if val >= 0 else "#F43F5E" for val in df["net_display"]]
+            fig.add_trace(
+                go.Bar(
+                    x=df["Date"],
+                    y=df["net_display"],
+                    marker=dict(
+                        color=bar_colors,
+                        line=dict(color=bar_colors, width=0.5)
+                    ),
+                    name="Net Flow",
+                    hovertemplate="%{x}<br>Net Flow: %{y:+.2f} " + asset.volume_unit + "<extra></extra>"
                 ),
-                name="Net Flow",
-                hovertemplate="%{x}<br>Net Flow: %{y:+.2f} " + asset.volume_unit + "<extra></extra>"
-            ),
-            row=2, col=1
-        )
+                row=2, col=1
+            )
         
         # Configure layout styling
         fig.update_layout(
@@ -341,26 +384,38 @@ class DashboardUI:
         
         st.plotly_chart(fig, use_container_width=True)
 
-    def render_data_table(self, df: pd.DataFrame, asset: AssetConfig, start_str: str, end_str: str):
+    def render_data_table(self, df: pd.DataFrame, asset: AssetConfig, start_str: str, end_str: str, investor_type: str):
         """
         Renders historical tabular records and provides CSV export capabilities.
         """
         st.markdown("### 📋 Recent Historical Transactions")
         
         # Create cleaned dataframe for users
-        export_df = df[["Date", "Open", "High", "Low", "Close", "Volume", "buy_display", "sell_display", "net_display"]].copy()
-        export_df.columns = ["Date", "Open", "High", "Low", "Close", "Market Volume", "Foreign Buy", "Foreign Sell", "Foreign Net Flow"]
+        if investor_type == "Summary (綜合比較)":
+            export_df = df[["Date", "Open", "High", "Low", "Close", "Volume", "net_Foreign_display", "net_Trust_display", "net_Dealer_display", "net_display"]].copy()
+            export_df.columns = ["Date", "Open", "High", "Low", "Close", "Market Volume", "Foreign Net", "Trust Net", "Dealer Net", "Total Net"]
+        else:
+            export_df = df[["Date", "Open", "High", "Low", "Close", "Volume", "buy_display", "sell_display", "net_display"]].copy()
+            export_df.columns = ["Date", "Open", "High", "Low", "Close", "Market Volume", f"{investor_type} Buy", f"{investor_type} Sell", f"{investor_type} Net Flow"]
         
         # Reverse list to show newest records on top
         display_df = export_df.sort_values("Date", ascending=False).copy()
         
         # Value decimal formatting configurations
         val_fmt = "{:,.2f}" if asset.is_index else "{:,.1f}"
-        format_dict = {
-            "Open": val_fmt, "High": val_fmt, "Low": val_fmt, "Close": val_fmt,
-            "Market Volume": "{:,.0f}",
-            "Foreign Buy": "{:,.2f}", "Foreign Sell": "{:,.2f}", "Foreign Net Flow": "{:+.2f}"
-        }
+        
+        if investor_type == "Summary (綜合比較)":
+            format_dict = {
+                "Open": val_fmt, "High": val_fmt, "Low": val_fmt, "Close": val_fmt,
+                "Market Volume": "{:,.0f}",
+                "Foreign Net": "{:+.2f}", "Trust Net": "{:+.2f}", "Dealer Net": "{:+.2f}", "Total Net": "{:+.2f}"
+            }
+        else:
+            format_dict = {
+                "Open": val_fmt, "High": val_fmt, "Low": val_fmt, "Close": val_fmt,
+                "Market Volume": "{:,.0f}",
+                f"{investor_type} Buy": "{:,.2f}", f"{investor_type} Sell": "{:,.2f}", f"{investor_type} Net Flow": "{:+.2f}"
+            }
         
         tbl_col, btn_col = st.columns([4, 1])
         with tbl_col:
@@ -397,7 +452,7 @@ class DashboardUI:
         Main runner executing components sequentially.
         """
         st.set_page_config(
-            page_title="Taiwan Stock & Foreign Institutional Tracker",
+            page_title="Taiwan Stock & Institutional Tracker",
             page_icon="📈",
             layout="wide",
             initial_sidebar_state="expanded"
@@ -406,7 +461,7 @@ class DashboardUI:
         self.render_header()
         
         # Fetch inputs from sidebar
-        ticker_input, start_str, end_str, chart_style, api_token = self.render_sidebar()
+        ticker_input, start_str, end_str, chart_style, api_token, investor_type = self.render_sidebar()
         
         # Load and verify data
         with st.spinner("Fetching market data..."):
@@ -414,7 +469,8 @@ class DashboardUI:
                 ticker_input=ticker_input,
                 start_date_str=start_str,
                 end_date_str=end_str,
-                token=api_token if api_token else None
+                token=api_token if api_token else None,
+                investor_type=investor_type
             )
             
             if df.empty:
@@ -423,12 +479,12 @@ class DashboardUI:
                 return
                 
             if is_mocked:
-                st.warning("⚠️ FinMind API rate limits exceeded or service offline. Simulated Foreign Net Buy/Sell volume displayed.")
+                st.warning("⚠️ FinMind API rate limits exceeded or service offline. Simulated Institutional Net Buy/Sell volume displayed.")
                 
             # Render UI components
-            self.render_kpi_cards(df, asset)
-            self.render_plotly_charts(df, asset, chart_style)
-            self.render_data_table(df, asset, start_str, end_str)
+            self.render_kpi_cards(df, asset, investor_type)
+            self.render_plotly_charts(df, asset, chart_style, investor_type)
+            self.render_data_table(df, asset, start_str, end_str, investor_type)
 
 # Entry point of app
 if __name__ == "__main__":

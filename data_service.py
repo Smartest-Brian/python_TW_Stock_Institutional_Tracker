@@ -97,9 +97,9 @@ class DataFetcher:
             return pd.DataFrame()
 
     @staticmethod
-    def fetch_foreign_flows(finmind_id: str, is_index: bool, start_date: str, end_date: str, token: str = None) -> pd.DataFrame:
+    def fetch_institutional_flows(finmind_id: str, is_index: bool, start_date: str, end_date: str, token: str = None, investor_type: str = "Foreign Investors (外資)") -> pd.DataFrame:
         """
-        Fetches institutional net buys/sells from FinMind API.
+        Fetches institutional net buys/sells from FinMind API and filters by investor type.
         """
         url = "https://api.finmindtrade.com/api/v4/data"
         dataset = "TaiwanStockTotalInstitutionalInvestors" if is_index else "TaiwanStockInstitutionalInvestorsBuySell"
@@ -125,10 +125,58 @@ class DataFetcher:
                 if df.empty:
                     return pd.DataFrame()
                 
-                # Filter specifically for Foreign Institutional Investors (Foreign_Investor)
-                df_filtered = df[df["name"] == "Foreign_Investor"].copy()
-                df_filtered["net_buy_sell"] = df_filtered["buy"] - df_filtered["sell"]
-                return df_filtered[["date", "buy", "sell", "net_buy_sell"]]
+                # Filter specifically for the chosen Institutional Investor
+                if investor_type == "Summary (綜合比較)":
+                    foreign_names = ["Foreign_Investor", "Foreign_Dealer_Self"]
+                    trust_names = ["Investment_Trust"]
+                    dealer_names = ["Dealer_self", "Dealer_Hedging"]
+                    all_names = foreign_names + trust_names + dealer_names
+                    
+                    df_filtered = df[df["name"].isin(all_names)].copy()
+                    if df_filtered.empty:
+                        return pd.DataFrame()
+                        
+                    df_filtered["net"] = df_filtered["buy"] - df_filtered["sell"]
+                    
+                    def assign_group(name):
+                        if name in foreign_names: return "Foreign"
+                        if name in trust_names: return "Trust"
+                        if name in dealer_names: return "Dealer"
+                        return "Other"
+                        
+                    df_filtered["group"] = df_filtered["name"].apply(assign_group)
+                    
+                    df_group = df_filtered.groupby(["date", "group"])["net"].sum().reset_index()
+                    df_wide = df_group.pivot(index="date", columns="group", values="net").fillna(0).reset_index()
+                    
+                    for col in ["Foreign", "Trust", "Dealer"]:
+                        if col not in df_wide.columns:
+                            df_wide[col] = 0.0
+                            
+                    df_total = df_filtered.groupby("date")[["buy", "sell"]].sum().reset_index()
+                    df_total["net_buy_sell"] = df_total["buy"] - df_total["sell"]
+                    
+                    df_final = pd.merge(df_total, df_wide, on="date", how="left")
+                    return df_final
+                elif investor_type == "Foreign Investors (外資)":
+                    names = ["Foreign_Investor", "Foreign_Dealer_Self"]
+                elif investor_type == "Investment Trust (投信)":
+                    names = ["Investment_Trust"]
+                elif investor_type == "Dealers (自營商)":
+                    names = ["Dealer_self", "Dealer_Hedging"]
+                elif investor_type == "Total Institutional (三大法人合計)":
+                    names = ["Foreign_Investor", "Foreign_Dealer_Self", "Investment_Trust", "Dealer_self", "Dealer_Hedging"]
+                else:
+                    names = ["Foreign_Investor"]
+
+                df_filtered = df[df["name"].isin(names)].copy()
+                if df_filtered.empty:
+                    return pd.DataFrame()
+                
+                # Aggregate by date
+                df_agg = df_filtered.groupby("date")[["buy", "sell"]].sum().reset_index()
+                df_agg["net_buy_sell"] = df_agg["buy"] - df_agg["sell"]
+                return df_agg[["date", "buy", "sell", "net_buy_sell"]]
             return pd.DataFrame()
         except Exception:
             return pd.DataFrame()
@@ -174,16 +222,16 @@ class MarketDataService:
     def __init__(self, token: str = None):
         self.token = token
 
-    def get_merged_data(self, asset: AssetConfig, start_date: str, end_date: str) -> Tuple[pd.DataFrame, bool]:
+    def get_merged_data(self, asset: AssetConfig, start_date: str, end_date: str, investor_type: str = "Foreign Investors (外資)") -> Tuple[pd.DataFrame, bool]:
         """
-        Fetches, aligns, and merges stock price and foreign net flows.
+        Fetches, aligns, and merges stock price and institutional net flows.
         Returns a tuple of (merged_df, using_mock_fallback).
         """
         prices_df = DataFetcher.fetch_prices(asset.ticker, start_date, end_date)
         if prices_df.empty:
             return pd.DataFrame(), False
             
-        flows_df = DataFetcher.fetch_foreign_flows(asset.finmind_id, asset.is_index, start_date, end_date, self.token)
+        flows_df = DataFetcher.fetch_institutional_flows(asset.finmind_id, asset.is_index, start_date, end_date, self.token, investor_type)
         
         is_mocked = False
         if flows_df.empty:
@@ -192,6 +240,10 @@ class MarketDataService:
             dates = prices_df["Date"].tolist()
             prices = prices_df["Close"].tolist()
             flows_df = FallbackGenerator.generate_mock_flows(dates, prices, asset.is_index)
+            if investor_type == "Summary (綜合比較)":
+                flows_df["Foreign"] = flows_df["net_buy_sell"] * 0.6
+                flows_df["Trust"] = flows_df["net_buy_sell"] * 0.3
+                flows_df["Dealer"] = flows_df["net_buy_sell"] * 0.1
             
         # Aligns price dates and flow dates
         merged_df = pd.merge(prices_df, flows_df, left_on="Date", right_on="date", how="inner")
@@ -206,4 +258,11 @@ class MarketDataService:
         merged_df["buy_display"] = merged_df["buy"] / scale_factor
         merged_df["sell_display"] = merged_df["sell"] / scale_factor
         
+        if investor_type == "Summary (綜合比較)":
+            for col in ["Foreign", "Trust", "Dealer"]:
+                if col in merged_df.columns:
+                    merged_df[f"net_{col}_display"] = merged_df[col] / scale_factor
+                else:
+                    merged_df[f"net_{col}_display"] = 0.0
+                    
         return merged_df, is_mocked
